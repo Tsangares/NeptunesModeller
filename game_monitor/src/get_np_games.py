@@ -89,6 +89,13 @@ def get_latest_proteus_game_id() -> str:
     game = get_proteus_game()
     return get_game_id(game)
 
+def get_latest_64p_game_info() -> str:
+    game = get_proteus_game()
+    name = get_game_name(game)
+    game_id = get_game_id(game)
+    return name, game_id
+
+
 def get_lastest_noob_game_id() -> str:
     noob = get_noob_game()
     return get_game_id(noob)
