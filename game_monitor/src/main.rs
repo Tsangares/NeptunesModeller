@@ -76,8 +76,7 @@ fn get_or_create_mnemonic() -> Result<String> {
 }
 
 
-fn get_game_info(client: &Client, block: &Block) -> Pin<Box<dyn Future<Output = Result<Vec<GameInfo>, Box<dyn Error>>>>> {
-    Box::pin(async move {
+fn get_game_info<'a>(client: &'a Client, block: Block) -> Pin<Box<dyn Future<Output = Result<Vec<GameInfo>, Box<dyn Error + 'a>>> + 'a>> {    Box::pin(async move {
         let mut game_infos: Vec<GameInfo> = Vec::new();
 
         match block.payload() {
@@ -88,11 +87,14 @@ fn get_game_info(client: &Client, block: &Block) -> Pin<Box<dyn Future<Output = 
                 let parent: Block = client.get_block(&game_info.parent).await?;
 
                 // Recursive step
-                game_infos.extend(get_game_info(&client, &parent).await?);
+                game_infos.extend(get_game_info(&client, parent).await?);
                 game_infos.push(game_info);
             }
             None => {
                 println!("No more data.");
+            }
+            _ => {
+                println!("Payload type not supported.");
             }
         }
         Ok(game_infos)
@@ -230,7 +232,7 @@ async fn main() -> Result<()> {
 
         
         println!("Retrieving all data...");
-        let game_infos: Vec<GameInfo> = get_game_info(&client,&last_block).await.unwrap();
+        let game_infos: Vec<GameInfo> = get_game_info(&client,last_block.clone()).await.unwrap();
         
         println!("All unique data:");
         for game_info in game_infos {
