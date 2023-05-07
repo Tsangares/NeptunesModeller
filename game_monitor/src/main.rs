@@ -100,46 +100,14 @@ async fn get_node_info(url: &str) -> () {
     println!("{}",node_info);
 }
 
-#[allow(dead_code)]
-fn get_node_list() -> Result<Vec<String>> {
-    let node_list_file_path = Path::new("node_list.json");
-    if node_list_file_path.exists() {
-        let node_list_text = fs::read_to_string(node_list_file_path)?;
-        let node_list: Vec<String> = serde_json::from_str(&node_list_text).unwrap();
-        Ok(node_list)
-    } else {
-        let node_list: Vec<String> = [
-            "https://api.shimmer.network",
-            "https://shimmer.iotatangle.us"
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-        Ok(node_list)
-    }
-}
-
-fn get_cpu_limit() -> usize {
-    let mut cpus = num_cpus::get();
-    if cpus > 1 {
-        cpus = cpus-1;
-    }
-    cpus
-}
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    //TODO: Load node slices if you can't find remote ones. 
-    //let nodes = get_node_list()?;
-    //let nodes_slice: &[&str] = &nodes.iter().map(|s| s.as_str()).collect::<Vec<_>>()[..];
-    let cpus = get_cpu_limit();
-
     println!("Connecting to Shimmer Network.");
     let client = Client::builder()
         .with_primary_node("https://api.shimmer.network",None).expect("Public node down.")
         .with_primary_pow_node("https://shimmer.iotatangle.us",None).expect("Pow node down.")
         .with_node("https://multiverse.dlt.builders").expect("Backup node down.")
-        //.with_nodes(&nodes_slice)?
         .with_local_pow(false)
         .finish()?;
 
