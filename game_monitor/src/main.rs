@@ -1,29 +1,21 @@
-#![allow(dead_code)]
-#![allow(unreachable_code)]
-#![allow(unused_imports)]
-
 use anyhow::Result;
 use iota_client::block::payload::{Payload, TaggedDataPayload};
 use iota_client::block::{BlockId, Block};
 use iota_client::Client;
+use iota_client::node_manager::node::NodeAuth;
+use serde::{Deserialize, Serialize};
+use futures::Future;
 use pyo3::prelude::*;
-
-//thread, time::Duration,
-use termion::{event::Key, input::TermRead};
-
 use std::{
     fs,
     error::Error,
     str::FromStr,
     pin::Pin,
     path::Path,
-    io::{stdin, stdout, Write},
-    collections::HashSet,
-    process::exit,
+    io::{stdout, Write},
 };
-use futures::Future;
-
-use serde::{Deserialize, Serialize};
+#[allow(unused_imports)]
+use std::process::exit;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct GameInfo {
@@ -62,6 +54,7 @@ fn set_last_block_id(block: BlockId) -> Result<()>{
 }
 
 //Store Mnemonic locally; This is essentailly a server session ID
+#[allow(dead_code)]
 fn get_or_create_mnemonic() -> Result<String> {
     let mnemonic_file_path = Path::new("mnemonic.txt");
 
@@ -101,85 +94,75 @@ fn get_game_info<'a>(client: &'a Client, block: Block) -> Pin<Box<dyn Future<Out
     })
 }
 
-/*
-//Get data from ledger
-async fn retrieve_unique_payloads_from_blocks(client: &Client, block_ids: &[BlockId]) -> Result<HashSet<(String, String)>> {
-    let mut unique_payloads = HashSet::new();
-
-    for block_id in block_ids {
-        let block = client.get_block(block_id).await?;
-        if let Some(Payload::TaggedData(payload)) = block.payload() {
-            let tag = String::from_utf8(payload.tag().to_vec()).expect("found invalid UTF-8");
-            let data = String::from_utf8(payload.data().to_vec()).expect("found invalid UTF-8");
-
-            // Insert the payload into the HashSet (unique payloads)
-            unique_payloads.insert((tag, data));
-        }
-    }
-
-    Ok(unique_payloads)
+async fn get_node_info(url: &str) -> () {
+    let response = Client::get_node_info(&url,None).await;
+    let node_info: String = serde_json::to_string_pretty(&response).unwrap();
+    println!("{}",node_info);
 }
-*/
-/*
-//Get the block ids from an IOTA address
-async fn fetch_uploaded_block_ids(client: &Client) -> Result<Vec<BlockId>> {
-    let mut block_ids = Vec::new();
 
-    let output = client.finish().await?;
-    for output_id in output.iter() {
-        let current_block_id: BlockId = BlockId::from_str(&output_id)?;
-        let block = client.get_block(&current_block_id).await?;
-        if let Some(Payload::TaggedData(payload)) = block.payload() {
-            let tag = String::from_utf8(payload.tag().to_vec()).expect("found invalid UTF-8");
-            if tag == "Block ID" {
-                let data = String::from_utf8(payload.data().to_vec()).expect("found invalid UTF-8");
-                let block_id = BlockId::from_str(&data)?;
-                block_ids.push(block_id);
-            }
-        }
+#[allow(dead_code)]
+fn get_node_list() -> Result<Vec<String>> {
+    let node_list_file_path = Path::new("node_list.json");
+    if node_list_file_path.exists() {
+        let node_list_text = fs::read_to_string(node_list_file_path)?;
+        let node_list: Vec<String> = serde_json::from_str(&node_list_text).unwrap();
+        Ok(node_list)
+    } else {
+        let node_list: Vec<String> = [
+            "https://api.shimmer.network",
+            "https://shimmer.iotatangle.us"
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        Ok(node_list)
     }
-
-    Ok(block_ids)
 }
-*/
 
-fn get_user_input() -> Option<Key> {
-    let stdin = stdin();
-    let mut stdin_keys = stdin.keys();
-    let _key = stdin_keys.next();
-
-    _key?.ok()
+fn get_cpu_limit() -> usize {
+    let mut cpus = num_cpus::get();
+    if cpus > 1 {
+        cpus = cpus-1;
+    }
+    cpus
 }
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    //TODO: Load node slices if you can't find remote ones. 
+    //let nodes = get_node_list()?;
+    //let nodes_slice: &[&str] = &nodes.iter().map(|s| s.as_str()).collect::<Vec<_>>()[..];
+    let cpus = get_cpu_limit();
+
+    println!("Connecting to Shimmer Network.");
     let client = Client::builder()
-        .with_node("https://api.testnet.shimmer.network")?
+        .with_primary_node("https://api.shimmer.network",None).expect("Public node down.")
+        .with_primary_pow_node("https://shimmer.iotatangle.us",None).expect("Pow node down.")
+        .with_node("https://multiverse.dlt.builders").expect("Backup node down.")
+        //.with_nodes(&nodes_slice)?
+        .with_local_pow(false)
         .finish()?;
 
     //Python interpreter
     pyo3::prepare_freethreaded_python();
 
     //Store block ids on ledger in an address
-    let mut last_block_id: BlockId;
     let mut last_block: Block;
-    match get_last_block_id()?{
-        Some(block_id)=> { 
-            last_block_id = block_id;
+    match get_last_block_id()? {
+        Some(block_id)=> {
             println!("Fetching last block");
-            last_block = client.get_block(&last_block_id).await?;
+            last_block = client.get_block(&block_id).await?;
         }
         None => {
             println!("No start block found: Creating one...");
             last_block = client.block().finish().await?;
-            last_block_id = last_block.id();
-            set_last_block_id(last_block_id)?;
+            set_last_block_id(last_block.id())?;
         }
     }
-    println!("Starting block {}",last_block_id);
+    println!("Starting block {}",last_block.id());
     //Store uploaded block ids
     let mut uploaded_block_ids = Vec::new();
-    uploaded_block_ids.push(last_block_id);
+    uploaded_block_ids.push(last_block.id());
     loop {
         println!("Fetching Latest NP Game ID");
         //Get game info from python
@@ -189,14 +172,14 @@ async fn main() -> Result<()> {
         let game_info = GameInfo {
             game_id: game_id.clone(),
             game_name: game_name.clone(),
-            parent: last_block_id,
+            parent: last_block.id(),
         };
         let tagged_data_payload = TaggedDataPayload::new(
             format!("NP_GAME_CACHE").into_bytes(),
             serde_json::to_string_pretty(&game_info).unwrap().into_bytes(),
         )?;
 
-        println!("Uploading Game ID {}",game_id);
+        println!("Searching for Nonce to upload Game ID {}",game_id);
         // Send a block with the gamedata payload.
         let block = client
             .block()
@@ -206,7 +189,6 @@ async fn main() -> Result<()> {
         //Now Store the last block for Retrieval
         set_last_block_id(block.id())?;
         last_block = block.clone();
-        last_block_id = last_block.id();
 
         println!(
             "Sent block with custom payload for game: {} ({}), Block ID: {}",
@@ -225,12 +207,7 @@ async fn main() -> Result<()> {
             .block()
             .finish_block(Some(Payload::from(block_id_payload)))
             .await?;
-        
-        print!("Press SPACE to fetch again or ENTER to retrieve all data: ");
-        stdout().flush().unwrap();
-
-
-        
+                
         println!("Retrieving all data...");
         let game_infos: Vec<GameInfo> = get_game_info(&client,last_block.clone()).await.unwrap();
         

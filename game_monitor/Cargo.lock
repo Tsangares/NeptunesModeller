@@ -698,6 +698,7 @@ dependencies = [
  "identity_iota",
  "iota-client 2.0.1-rc.7 (git+https://github.com/iotaledger/iota.rs?branch=develop)",
  "libc",
+ "num_cpus",
  "pyo3",
  "serde",
  "serde_json",
